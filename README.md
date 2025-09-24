@@ -1,6 +1,8 @@
 # Face Quality Assessment Microservice
 
-Enterprise-grade face quality assessment microservice using OpenCV, dlib, and deep learning models for comprehensive quality analysis including blur detection, pose estimation, lighting analysis, resolution assessment, and super-resolution enhancement.
+Enterprise-grade face quality assessment microservice using OpenCV, MediaPipe, and deep learning models for comprehensive quality analysis including blur detection, pose estimation, lighting analysis, resolution assessment, and super-resolution enhancement.
+
+> **🔧 Docker Build Fixed**: Uses MediaPipe (no dlib compilation issues). Fast builds, better accuracy, no CMake errors. See [DOCKER_BUILD_FIX.md](DOCKER_BUILD_FIX.md) for details.
 
 ## 🚀 Features
 

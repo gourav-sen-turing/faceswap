@@ -1,17 +1,20 @@
-# CPU-optimized Dockerfile for Face Quality Assessment Service (Fixed)
-FROM python:3.10-slim-bullseye
+# Production-ready Dockerfile without dlib compilation issues
+FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    CUDA_HOME=/usr/local/cuda \
+    PATH=/usr/local/cuda/bin:$PATH \
+    LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 
-# Install runtime system dependencies only
+# Install system dependencies (runtime only, no build tools)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    wget \
+    python3.10 \
+    python3-pip \
     libgl1-mesa-glx \
     libglib2.0-0 \
     libsm6 \
@@ -19,6 +22,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxrender1 \
     libgomp1 \
     libopenblas0 \
+    curl \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
@@ -27,21 +32,25 @@ RUN useradd -m -u 1000 -s /bin/bash appuser
 # Set working directory
 WORKDIR /app
 
-# Upgrade pip and install numpy first
-RUN pip3 install --upgrade pip setuptools wheel && \
-    pip3 install numpy==1.24.3
+# Upgrade pip and install build tools temporarily
+RUN pip3 install --upgrade pip setuptools wheel
 
-# Install Python dependencies (using pre-compiled wheels, no dlib)
+# Install numpy first (required by many packages)
+RUN pip3 install numpy==1.24.3
+
+# Install Python dependencies (using pre-compiled wheels)
 COPY requirements-fixed.txt requirements.txt
 RUN pip3 install --prefer-binary -r requirements.txt && \
-    pip3 install onnxruntime==1.16.3 && \
     pip3 cache purge
+
+# Install alternative face detection (MediaPipe - no compilation needed)
+RUN pip3 install mediapipe==0.10.8
 
 # Copy application code
 COPY --chown=appuser:appuser . .
 
 # Create necessary directories
-RUN mkdir -p /app/logs /app/cache /app/uploads /app/results && \
+RUN mkdir -p /app/logs /app/cache /app/uploads /app/results /app/models && \
     chown -R appuser:appuser /app
 
 # Switch to non-root user
@@ -55,4 +64,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 EXPOSE 8000
 
 # Run the application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
