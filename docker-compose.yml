@@ -1,0 +1,242 @@
+version: '3.9'
+
+services:
+  # Face Quality Assessment Service (GPU-enabled)
+  face-quality-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: face-quality-assessment:latest
+    container_name: face-quality-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - API_KEY=${API_KEY}
+      - SECRET_KEY=${SECRET_KEY}
+      - REDIS_URL=redis://redis:6379/0
+      - MONGODB_URL=mongodb://mongodb:27017
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - WORKERS=${WORKERS:-4}
+      - GPU_ENABLED=true
+      - CUDA_VISIBLE_DEVICES=0
+    volumes:
+      - ./uploads:/app/uploads
+      - ./results:/app/results
+      - ./logs:/app/logs
+      - ./models:/app/models
+      - ./cache:/app/cache
+    depends_on:
+      - redis
+      - mongodb
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - face-quality-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Horizontal Scaling - Worker Instances
+  face-quality-worker-1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: face-quality-assessment:latest
+    container_name: face-quality-worker-1
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - API_KEY=${API_KEY}
+      - SECRET_KEY=${SECRET_KEY}
+      - REDIS_URL=redis://redis:6379/0
+      - MONGODB_URL=mongodb://mongodb:27017
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - WORKERS=2
+      - GPU_ENABLED=true
+      - CUDA_VISIBLE_DEVICES=0
+    volumes:
+      - ./uploads:/app/uploads
+      - ./results:/app/results
+      - ./logs:/app/logs
+      - ./models:/app/models
+      - ./cache:/app/cache
+    depends_on:
+      - redis
+      - mongodb
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - face-quality-network
+
+  face-quality-worker-2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: face-quality-assessment:latest
+    container_name: face-quality-worker-2
+    restart: unless-stopped
+    ports:
+      - "8002:8000"
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - API_KEY=${API_KEY}
+      - SECRET_KEY=${SECRET_KEY}
+      - REDIS_URL=redis://redis:6379/0
+      - MONGODB_URL=mongodb://mongodb:27017
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - WORKERS=2
+      - GPU_ENABLED=true
+      - CUDA_VISIBLE_DEVICES=1
+    volumes:
+      - ./uploads:/app/uploads
+      - ./results:/app/results
+      - ./logs:/app/logs
+      - ./models:/app/models
+      - ./cache:/app/cache
+    depends_on:
+      - redis
+      - mongodb
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - face-quality-network
+
+  # Redis for caching and task queue
+  redis:
+    image: redis:7.2-alpine
+    container_name: face-quality-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy allkeys-lru
+    networks:
+      - face-quality-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MongoDB for metadata storage
+  mongodb:
+    image: mongo:7.0
+    container_name: face-quality-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USERNAME:-admin}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD:-secure_password}
+    volumes:
+      - mongodb-data:/data/db
+      - mongodb-config:/data/configdb
+    networks:
+      - face-quality-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # NGINX Load Balancer
+  nginx:
+    image: nginx:alpine
+    container_name: face-quality-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - face-quality-api
+      - face-quality-worker-1
+      - face-quality-worker-2
+    networks:
+      - face-quality-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Prometheus for monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: face-quality-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    networks:
+      - face-quality-network
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: face-quality-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+    networks:
+      - face-quality-network
+
+volumes:
+  redis-data:
+    driver: local
+  mongodb-data:
+    driver: local
+  mongodb-config:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+
+networks:
+  face-quality-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

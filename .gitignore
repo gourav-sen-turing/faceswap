@@ -1,65 +1,104 @@
-# Global (Exclude all + retain files that are unlikely to pollute local installs)
-*
-!*.keep
-!*.md
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 
-# Requirements files
-!/requirements/
-!/requirements/*requirements*.txt
-!/requirements/*conda*.yml
+# Virtual Environment
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
 
-# Root files
-!Dockerfile*
-!.pylintrc
-!setup.cfg
-!.travis.yml
-!/faceswap.py
-!/setup.py
-!/tools.py
-!/update_deps.py
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
 
-# Support files
-!/.github/
-!/.github/workflows/
-!/.github/workflows/*.yml
-!.install/
-!.install/**
-!config/
-!.readthedocs.yml
-!docs/
-!docs/full**
-!docs/_static**
-!locales/
-!locales/**
-!tests/
-!tests/**/
-!tests/**/*.py
+# Environment
+.env
+.env.local
+.env.*.local
 
-# Core files
-!.fs_cache
-!lib/
-!lib/**/
-!lib/**/*.py
-!lib/gui/**/icons/*.png
-!lib/gui/**/themes/default.json
-!lib/gui/**/presets/**/*.json
-!plugins/
-!plugins/**/
-!plugins/**/*.py
-!scripts/
-!scripts/*.py
-!tools/
-!tools/**/
-!tools/**/*.py
+# Logs
+logs/
+*.log
 
-# GUI Plugin Presets
-!lib/gui/**/presets/train/model_phaze_a_dfaker_preset.json
-!lib/gui/**/presets/train/model_phaze_a_dfl-h128_preset.json
-!lib/gui/**/presets/train/model_phaze_a_dfl-sae-df_preset.json
-!lib/gui/**/presets/train/model_phaze_a_dfl-sae-liae_preset.json
-!lib/gui/**/presets/train/model_phaze_a_dfl-saehd-df_preset.json
-!lib/gui/**/presets/train/model_phaze_a_dfl-saehd-liae_preset.json
-!lib/gui/**/presets/train/model_phaze_a_iae_preset.json
-!lib/gui/**/presets/train/model_phaze_a_lightweight_preset.json
-!lib/gui/**/presets/train/model_phaze_a_original_preset.json
-!lib/gui/**/presets/train/model_phaze_a_stojo_preset.json
+# Data
+uploads/
+results/
+cache/
+backups/
+
+# Models (optional - comment out if you want to track models)
+models/*.pth
+models/*.pt
+models/*.onnx
+models/*.h5
+models/*.pb
+
+# Docker
+docker-compose.override.yml
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# Jupyter
+.ipynb_checkpoints
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary files
+*.tmp
+*.temp
+.temp/
+tmp/
+
+# OS
+Thumbs.db
+.Spotlight-V100
+.Trashes
+
+# Certificates
+*.pem
+*.key
+*.crt
+nginx/ssl/*.pem
+nginx/ssl/*.key
+
+# Monitoring
+prometheus/data/
+grafana/data/
