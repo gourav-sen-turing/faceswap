@@ -5,17 +5,16 @@ FROM nvidia/cuda:12.1.0-cudnn8-devel-ubuntu22.04 AS builder
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     CUDA_HOME=/usr/local/cuda \
     PATH=/usr/local/cuda/bin:$PATH \
     LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 
-# Install build dependencies with updated CMake
+# Install system dependencies for building
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.10 \
+    python3.10-dev \
     python3-pip \
-    python3-dev \
     build-essential \
     cmake \
     git \
@@ -37,21 +36,36 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libavcodec-dev \
     libavformat-dev \
     libswscale-dev \
+    libv4l-dev \
+    libatlas-base-dev \
+    gfortran \
     && rm -rf /var/lib/apt/lists/*
 
-# Upgrade CMake to resolve compatibility issues
-RUN wget -q https://github.com/Kitware/CMake/releases/download/v3.27.7/cmake-3.27.7-linux-x86_64.sh && \
-    chmod +x cmake-3.27.7-linux-x86_64.sh && \
-    ./cmake-3.27.7-linux-x86_64.sh --skip-license --prefix=/usr/local && \
-    rm cmake-3.27.7-linux-x86_64.sh
+# Upgrade CMake to version 3.20+ to fix dlib compatibility
+RUN wget -q https://github.com/Kitware/CMake/releases/download/v3.27.7/cmake-3.27.7-linux-x86_64.sh \
+    && chmod +x cmake-3.27.7-linux-x86_64.sh \
+    && ./cmake-3.27.7-linux-x86_64.sh --skip-license --prefix=/usr/local \
+    && rm cmake-3.27.7-linux-x86_64.sh \
+    && cmake --version
 
-# Verify CMake version
-RUN cmake --version
+# Set working directory for builder
+WORKDIR /build
+
+# Copy requirements
+COPY requirements.txt .
+
+# Install Python dependencies with proper build order
+RUN pip3 install --upgrade pip setuptools wheel && \
+    # Install numpy first (required by many packages)
+    pip3 install numpy==1.24.3 && \
+    # Install dlib with proper build flags
+    pip3 install dlib==19.24.2 --verbose && \
+    # Install remaining dependencies
+    pip3 install --no-cache-dir -r requirements.txt
 
 # Runtime stage
-FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04 AS base
+FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
 
-# Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -63,7 +77,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.10 \
     python3-pip \
-    libopencv-core4.5d \
+    libopencv-dev \
     libgl1-mesa-glx \
     libglib2.0-0 \
     libsm6 \
@@ -74,12 +88,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     liblapack3 \
     libx11-6 \
     libgtk-3-0 \
+    libavcodec58 \
+    libavformat58 \
+    libswscale5 \
+    libatlas-base-dev \
     curl \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-
-# Copy CMake from builder
-COPY --from=builder /usr/local/bin/cmake /usr/local/bin/cmake
-COPY --from=builder /usr/local/share/cmake-3.27 /usr/local/share/cmake-3.27
 
 # Create non-root user
 RUN useradd -m -u 1000 -s /bin/bash appuser
@@ -87,26 +102,19 @@ RUN useradd -m -u 1000 -s /bin/bash appuser
 # Set working directory
 WORKDIR /app
 
-# Copy and install Python dependencies in builder stage
+# Copy Python packages from builder
 COPY --from=builder /usr/local/lib/python3.10/dist-packages /usr/local/lib/python3.10/dist-packages
-
-# Install Python dependencies with optimized approach
-COPY requirements-fixed.txt requirements.txt
-RUN pip3 install --upgrade pip setuptools wheel && \
-    pip3 install numpy==1.24.3 && \
-    pip3 install --no-build-isolation dlib==19.24.2 || \
-    pip3 install dlib-bin==19.24.2 || \
-    pip3 install cmake && pip3 install dlib==19.24.2 && \
-    pip3 install -r requirements.txt --no-deps && \
-    pip3 install -r requirements.txt && \
-    pip3 cache purge || true
+COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application code
 COPY --chown=appuser:appuser . .
 
 # Create necessary directories
-RUN mkdir -p /app/logs /app/cache /app/uploads /app/results && \
+RUN mkdir -p /app/logs /app/cache /app/uploads /app/results /app/models && \
     chown -R appuser:appuser /app
+
+# Download pre-trained models
+RUN python3 -c "import cv2; cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')" || true
 
 # Switch to non-root user
 USER appuser

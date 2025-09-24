@@ -1,8 +1,6 @@
 # Face Quality Assessment Microservice
 
-Enterprise-grade face quality assessment microservice using OpenCV, MediaPipe, and deep learning models for comprehensive quality analysis including blur detection, pose estimation, lighting analysis, resolution assessment, and super-resolution enhancement.
-
-> **🔧 Docker Build Fixed**: Uses MediaPipe (no dlib compilation issues). Fast builds, better accuracy, no CMake errors. See [DOCKER_BUILD_FIX.md](DOCKER_BUILD_FIX.md) for details.
+Enterprise-grade face quality assessment microservice using OpenCV, dlib, and deep learning models for comprehensive quality analysis including blur detection, pose estimation, lighting analysis, resolution assessment, and super-resolution enhancement.
 
 ## 🚀 Features
 
@@ -63,17 +61,27 @@ nano .env
 
 3. **Build and run with Docker Compose**
 ```bash
-# For GPU deployment
+# Quick start (uses MediaPipe - no dlib compilation issues)
 docker-compose up -d
 
-# For CPU-only deployment
-docker-compose -f docker-compose.cpu.yml up -d
+# Or use the build script
+./scripts/build.sh mediapipe  # Fastest, most reliable
+./scripts/build.sh gpu        # Full GPU with dlib
+./scripts/build.sh cpu        # CPU-optimized
+
+# Then start services
+docker-compose up -d
 ```
 
 4. **Verify deployment**
 ```bash
 curl http://localhost/health
 ```
+
+**Note:** If you encounter dlib build errors, see [DOCKER_BUILD_FIX.md](DOCKER_BUILD_FIX.md) for solutions. We provide 3 Dockerfiles:
+- `Dockerfile.mediapipe` - Fast, reliable (default)
+- `Dockerfile` - GPU with updated CMake
+- `Dockerfile.cpu` - CPU optimized
 
 ### Option 2: Local Development
 

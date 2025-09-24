@@ -6,7 +6,6 @@ import time
 import numpy as np
 import cv2
 from typing import Tuple, Optional, Dict, Any
-import dlib
 from scipy.spatial import distance
 from skimage import exposure
 from skimage.filters import laplace
@@ -27,23 +26,57 @@ class FaceQualityAssessor:
     
     def __init__(self):
         """Initialize quality assessor."""
-        self.detector = dlib.get_frontal_face_detector()
+        # Try dlib first, fall back to alternatives
+        self.use_dlib = False
+        self.use_mediapipe = False
+        self.detector = None
+        self.predictor = None
+        self.landmarks_available = False
+        
+        # Try to import and use dlib
+        try:
+            import dlib
+            self.detector = dlib.get_frontal_face_detector()
+            self.use_dlib = True
+            logger.info("Using dlib for face detection")
+            
+            # Try to load shape predictor
+            try:
+                self.predictor = dlib.shape_predictor(
+                    f"{settings.models_dir}/{settings.landmark_model}"
+                )
+                self.landmarks_available = True
+                logger.info("Loaded dlib landmark predictor")
+            except:
+                logger.warning("dlib landmark predictor not available")
+        except ImportError:
+            logger.warning("dlib not available, trying MediaPipe")
+            
+            # Try MediaPipe as alternative
+            try:
+                import mediapipe as mp
+                self.mp_face_detection = mp.solutions.face_detection
+                self.mp_face_mesh = mp.solutions.face_mesh
+                self.face_detection = self.mp_face_detection.FaceDetection(
+                    min_detection_confidence=0.7
+                )
+                self.face_mesh = self.mp_face_mesh.FaceMesh(
+                    static_image_mode=True,
+                    max_num_faces=1,
+                    min_detection_confidence=0.7
+                )
+                self.use_mediapipe = True
+                self.landmarks_available = True
+                logger.info("Using MediaPipe for face detection and landmarks")
+            except ImportError:
+                logger.warning("MediaPipe not available, using OpenCV only")
+        
+        # Always have OpenCV cascade as fallback
         self.cascade = cv2.CascadeClassifier(
             cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
         )
         
-        # Try to load shape predictor if available
-        try:
-            self.predictor = dlib.shape_predictor(
-                f"{settings.models_dir}/{settings.landmark_model}"
-            )
-            self.landmarks_available = True
-        except:
-            self.predictor = None
-            self.landmarks_available = False
-            logger.warning("Landmark predictor not available, using alternative methods")
-        
-        logger.info("Face quality assessor initialized")
+        logger.info(f"Face quality assessor initialized (dlib={self.use_dlib}, mediapipe={self.use_mediapipe})")
     
     def assess_quality(
         self,
@@ -115,28 +148,68 @@ class FaceQualityAssessor:
         """Detect face in image."""
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
         
-        # Try dlib detector first
-        faces = self.detector(gray, 1)
+        # Try dlib detector
+        if self.use_dlib and self.detector:
+            faces = self.detector(gray, 1)
+            
+            if len(faces) > 0:
+                face = faces[0]
+                bbox = [face.left(), face.top(), face.width(), face.height()]
+                
+                # Get landmarks if available
+                landmarks = None
+                if self.landmarks_available and self.predictor:
+                    import dlib
+                    shape = self.predictor(gray, face)
+                    landmarks = [[p.x, p.y] for p in shape.parts()]
+                
+                return FaceDetection(
+                    bbox=bbox,
+                    confidence=0.95,
+                    landmarks=landmarks
+                )
         
-        if len(faces) > 0:
-            face = faces[0]
-            bbox = [face.left(), face.top(), face.width(), face.height()]
-            
-            # Get landmarks if available
-            landmarks = None
-            if self.landmarks_available and self.predictor:
-                shape = self.predictor(gray, face)
-                landmarks = [[p.x, p.y] for p in shape.parts()]
-            
-            return FaceDetection(
-                bbox=bbox,
-                confidence=0.95,  # dlib doesn't provide confidence
-                landmarks=landmarks
-            )
+        # Try MediaPipe
+        if self.use_mediapipe:
+            try:
+                # Convert BGR to RGB for MediaPipe
+                rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                results = self.face_detection.process(rgb_image)
+                
+                if results.detections:
+                    detection = results.detections[0]
+                    bbox_rel = detection.location_data.relative_bounding_box
+                    h, w = image.shape[:2]
+                    
+                    bbox = [
+                        int(bbox_rel.xmin * w),
+                        int(bbox_rel.ymin * h),
+                        int(bbox_rel.width * w),
+                        int(bbox_rel.height * h)
+                    ]
+                    
+                    # Get landmarks from face mesh
+                    landmarks = None
+                    mesh_results = self.face_mesh.process(rgb_image)
+                    if mesh_results.multi_face_landmarks:
+                        face_landmarks = mesh_results.multi_face_landmarks[0]
+                        landmarks = [
+                            [int(lm.x * w), int(lm.y * h)]
+                            for lm in face_landmarks.landmark[:68]  # First 68 landmarks
+                        ]
+                    
+                    return FaceDetection(
+                        bbox=bbox,
+                        confidence=detection.score[0],
+                        landmarks=landmarks
+                    )
+            except Exception as e:
+                logger.warning(f"MediaPipe detection failed: {e}")
         
         # Fallback to Haar cascade
         faces = self.cascade.detectMultiScale(
-            gray, scaleFactor=1.1, minNeighbors=5, minSize=(settings.min_face_size, settings.min_face_size)
+            gray, scaleFactor=1.1, minNeighbors=5, 
+            minSize=(settings.min_face_size, settings.min_face_size)
         )
         
         if len(faces) > 0:

@@ -1,24 +1,91 @@
-# CPU-optimized Dockerfile for Face Quality Assessment Service (Fixed)
-FROM python:3.10-slim-bullseye
+# Multi-stage CPU-optimized Dockerfile for Face Quality Assessment Service
+FROM python:3.10-slim-bullseye AS builder
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Install runtime system dependencies only
+# Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
+    build-essential \
+    cmake \
+    git \
     wget \
-    libgl1-mesa-glx \
+    curl \
+    pkg-config \
+    python3-dev \
+    libopencv-dev \
+    libgl1-mesa-dev \
+    libglib2.0-dev \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    libboost-all-dev \
+    libopenblas-dev \
+    liblapack-dev \
+    libx11-dev \
+    libgtk-3-dev \
+    libavcodec-dev \
+    libavformat-dev \
+    libswscale-dev \
+    libatlas-base-dev \
+    gfortran \
+    && rm -rf /var/lib/apt/lists/*
+
+# Upgrade CMake for dlib compatibility
+RUN wget -q https://github.com/Kitware/CMake/releases/download/v3.27.7/cmake-3.27.7-linux-x86_64.sh \
+    && chmod +x cmake-3.27.7-linux-x86_64.sh \
+    && ./cmake-3.27.7-linux-x86_64.sh --skip-license --prefix=/usr/local \
+    && rm cmake-3.27.7-linux-x86_64.sh
+
+# Set working directory
+WORKDIR /build
+
+# Copy requirements
+COPY requirements.txt .
+
+# Install Python dependencies in proper order
+RUN pip3 install --upgrade pip setuptools wheel && \
+    # Install numpy first
+    pip3 install numpy==1.24.3 && \
+    # Install dlib with proper build configuration
+    pip3 install dlib==19.24.2 --verbose && \
+    # Install CPU version of onnxruntime
+    pip3 install onnxruntime==1.16.3 && \
+    # Install remaining dependencies (excluding GPU packages)
+    pip3 install --no-cache-dir -r requirements.txt || true
+
+# Runtime stage
+FROM python:3.10-slim-bullseye
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# Install runtime dependencies only
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libopencv-core4.5 \
+    libopencv-imgproc4.5 \
+    libopencv-imgcodecs4.5 \
+    libgl1 \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
     libxrender1 \
     libgomp1 \
     libopenblas0 \
+    liblapack3 \
+    libx11-6 \
+    libgtk-3-0 \
+    libavcodec58 \
+    libavformat58 \
+    libswscale5 \
+    libatlas3-base \
+    curl \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
@@ -27,21 +94,15 @@ RUN useradd -m -u 1000 -s /bin/bash appuser
 # Set working directory
 WORKDIR /app
 
-# Upgrade pip and install numpy first
-RUN pip3 install --upgrade pip setuptools wheel && \
-    pip3 install numpy==1.24.3
-
-# Install Python dependencies (using pre-compiled wheels, no dlib)
-COPY requirements-fixed.txt requirements.txt
-RUN pip3 install --prefer-binary -r requirements.txt && \
-    pip3 install onnxruntime==1.16.3 && \
-    pip3 cache purge
+# Copy Python packages from builder
+COPY --from=builder /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application code
 COPY --chown=appuser:appuser . .
 
 # Create necessary directories
-RUN mkdir -p /app/logs /app/cache /app/uploads /app/results && \
+RUN mkdir -p /app/logs /app/cache /app/uploads /app/results /app/models && \
     chown -R appuser:appuser /app
 
 # Switch to non-root user

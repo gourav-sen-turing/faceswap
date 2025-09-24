@@ -5,7 +5,7 @@ services:
   face-quality-api:
     build:
       context: .
-      dockerfile: Dockerfile.fixed  # Using fixed version without dlib compilation issues
+      dockerfile: Dockerfile.mediapipe  # Using MediaPipe for easier builds
     image: face-quality-assessment:latest
     container_name: face-quality-api
     restart: unless-stopped
@@ -50,7 +50,7 @@ services:
   face-quality-worker-1:
     build:
       context: .
-      dockerfile: Dockerfile.fixed  # Using fixed version without dlib compilation issues
+      dockerfile: Dockerfile.mediapipe  # Using MediaPipe for easier builds
     image: face-quality-assessment:latest
     container_name: face-quality-worker-1
     restart: unless-stopped
@@ -88,7 +88,7 @@ services:
   face-quality-worker-2:
     build:
       context: .
-      dockerfile: Dockerfile.fixed  # Using fixed version without dlib compilation issues
+      dockerfile: Dockerfile.mediapipe  # Using MediaPipe for easier builds
     image: face-quality-assessment:latest
     container_name: face-quality-worker-2
     restart: unless-stopped
